@@ -1,10 +1,14 @@
+
 package com.example.ytdownloader
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
+
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,10 +21,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -33,24 +39,35 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+
 import androidx.compose.runtime.*
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+
+import androidx.compose.ui.platform.LocalConfiguration
+
 import androidx.lifecycle.lifecycleScope
+
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+
 import com.example.ytdownloader.ui.theme.YTDownloaderTheme
+
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
 import java.io.File
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 
 
@@ -59,7 +76,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val TAG = "YTDownloader"
     }
-
 
     /*
      * Download directory
@@ -225,6 +241,7 @@ class MainActivity : ComponentActivity() {
 
                     DownloaderApp(
                         downloadDirectory = downloadDirectory,
+
                         onDownload = {
                                 url,
                                 onProgress,
@@ -293,9 +310,6 @@ class MainActivity : ComponentActivity() {
 
                     // -------------------------------------------------
                     // BEST VIDEO + BEST AUDIO
-                    //
-                    // This is the exact format configuration
-                    // from your previously working version.
                     // -------------------------------------------------
 
                     request.addOption(
@@ -587,9 +601,6 @@ fun DownloaderApp(
 
                         selectedTab = 1
 
-                        // Refresh files whenever
-                        // Downloads tab is opened.
-
                         downloadedVideos =
                             getVideoFiles(
                                 downloadDirectory
@@ -759,7 +770,6 @@ fun DownloaderApp(
                                     status =
                                         "Download complete!"
 
-                                    // Refresh Downloads tab
                                     downloadedVideos =
                                         getVideoFiles(
                                             downloadDirectory
@@ -1226,6 +1236,17 @@ fun VideoPlayerScreen(
             .LocalContext.current
 
     // -------------------------------------------------------------
+    // Detect orientation
+    // -------------------------------------------------------------
+
+    val configuration =
+        LocalConfiguration.current
+
+    val isLandscape =
+        configuration.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
+
+    // -------------------------------------------------------------
     // ExoPlayer
     // -------------------------------------------------------------
 
@@ -1262,13 +1283,40 @@ fun VideoPlayerScreen(
     ) {
 
         onDispose {
+
             exoPlayer.release()
         }
     }
 
-    // -------------------------------------------------------------
-    // Player UI
-    // -------------------------------------------------------------
+    // =============================================================
+    // LANDSCAPE MODE
+    // =============================================================
+
+    if (isLandscape) {
+
+        AndroidView(
+
+            factory = { ctx ->
+
+                PlayerView(ctx).apply {
+
+                    player =
+                        exoPlayer
+
+                    useController = true
+                }
+            },
+
+            modifier =
+                Modifier.fillMaxSize()
+        )
+
+        return
+    }
+
+    // =============================================================
+    // PORTRAIT MODE
+    // =============================================================
 
     Column(
 
@@ -1277,7 +1325,7 @@ fun VideoPlayerScreen(
     ) {
 
         // ---------------------------------------------------------
-        // Back
+        // Back button
         // ---------------------------------------------------------
 
         Button(
