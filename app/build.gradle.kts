@@ -54,7 +54,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
 
     // Material Icons
-    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    implementation("androidx.compose.material:material-icons-extended")
 
     // yt-dlp
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
