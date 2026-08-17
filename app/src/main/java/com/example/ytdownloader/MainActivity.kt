@@ -5,51 +5,107 @@ import android.os.Environment
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.example.ytdownloader.ui.theme.YTDownloaderTheme
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import androidx.compose.material3.ExperimentalMaterial3Api
 
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val TAG = "YTDownloader"
+    }
+
+
+    /*
+     * Download directory
+     */
+    private lateinit var downloadDirectory: File
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        /*
-         * Initialize yt-dlp
-         */
+        // =========================================================
+        // DOWNLOAD DIRECTORY
+        // =========================================================
+
+        downloadDirectory = File(
+            Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS
+            ),
+            "YTDownloader"
+        )
+
+        if (!downloadDirectory.exists()) {
+            downloadDirectory.mkdirs()
+        }
+
+        Log.d(
+            TAG,
+            "Download directory: ${downloadDirectory.absolutePath}"
+        )
+
+        // =========================================================
+        // INITIALIZE YT-DLP
+        // =========================================================
+
         try {
 
             YoutubeDL.getInstance().init(this)
 
             Log.d(
-                "YTDownloader",
+                TAG,
                 "yt-dlp environment initialized successfully"
             )
 
-            /*
-             * Check FFmpeg
-             */
+            // -----------------------------------------------------
+            // Check FFmpeg
+            // -----------------------------------------------------
+
             val nativeDir = applicationInfo.nativeLibraryDir
 
             val ffmpegFile = File(
@@ -58,28 +114,29 @@ class MainActivity : ComponentActivity() {
             )
 
             Log.d(
-                "YTDownloader",
+                TAG,
                 "Native library directory: $nativeDir"
             )
 
             Log.d(
-                "YTDownloader",
+                TAG,
                 "FFmpeg exists: ${ffmpegFile.exists()}"
             )
 
             Log.d(
-                "YTDownloader",
+                TAG,
                 "FFmpeg executable: ${ffmpegFile.canExecute()}"
             )
 
             Log.d(
-                "YTDownloader",
+                TAG,
                 "FFmpeg path: ${ffmpegFile.absolutePath}"
             )
 
-            /*
-             * Test FFmpeg
-             */
+            // -----------------------------------------------------
+            // Test FFmpeg
+            // -----------------------------------------------------
+
             try {
 
                 val process = ProcessBuilder(
@@ -96,27 +153,28 @@ class MainActivity : ComponentActivity() {
                 val exitCode = process.waitFor()
 
                 Log.d(
-                    "YTDownloader",
+                    TAG,
                     "FFmpeg test exit code: $exitCode"
                 )
 
                 Log.d(
-                    "YTDownloader",
+                    TAG,
                     "FFmpeg test output: $output"
                 )
 
             } catch (e: Exception) {
 
                 Log.e(
-                    "YTDownloader",
+                    TAG,
                     "FFmpeg test failed",
                     e
                 )
             }
 
-            /*
-             * Update yt-dlp
-             */
+            // -----------------------------------------------------
+            // Update yt-dlp
+            // -----------------------------------------------------
+
             Thread {
 
                 try {
@@ -128,14 +186,14 @@ class MainActivity : ComponentActivity() {
                         )
 
                     Log.d(
-                        "YTDownloader",
+                        TAG,
                         "yt-dlp update result: $result"
                     )
 
                 } catch (e: Exception) {
 
                     Log.e(
-                        "YTDownloader",
+                        TAG,
                         "yt-dlp update failed",
                         e
                     )
@@ -146,15 +204,16 @@ class MainActivity : ComponentActivity() {
         } catch (e: YoutubeDLException) {
 
             Log.e(
-                "YTDownloader",
+                TAG,
                 "yt-dlp initialization failed",
                 e
             )
         }
 
-        /*
-         * Compose UI
-         */
+        // =========================================================
+        // COMPOSE UI
+        // =========================================================
+
         setContent {
 
             YTDownloaderTheme {
@@ -164,86 +223,660 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
 
-                    DownloaderScreen()
+                    DownloaderApp(
+                        downloadDirectory = downloadDirectory,
+                        onDownload = {
+                                url,
+                                onProgress,
+                                onOutput,
+                                onComplete ->
+
+                            downloadVideo(
+                                url = url,
+                                onProgress = onProgress,
+                                onOutput = onOutput,
+                                onComplete = onComplete
+                            )
+                        }
+                    )
                 }
+            }
+        }
+    }
+
+    // =============================================================
+    // DOWNLOAD VIDEO
+    // =============================================================
+
+    private fun downloadVideo(
+        url: String,
+        onProgress: (Float) -> Unit,
+        onOutput: (String) -> Unit,
+        onComplete: (Boolean) -> Unit
+    ) {
+
+        lifecycleScope.launch {
+
+            try {
+
+                val result = withContext(Dispatchers.IO) {
+
+                    // -------------------------------------------------
+                    // Make sure directory exists
+                    // -------------------------------------------------
+
+                    if (!downloadDirectory.exists()) {
+                        downloadDirectory.mkdirs()
+                    }
+
+                    Log.d(
+                        TAG,
+                        "Download directory: " +
+                                downloadDirectory.absolutePath
+                    )
+
+                    // -------------------------------------------------
+                    // yt-dlp request
+                    // -------------------------------------------------
+
+                    val request =
+                        YoutubeDLRequest(url)
+
+                    // -------------------------------------------------
+                    // Output filename
+                    // -------------------------------------------------
+
+                    request.addOption(
+                        "-o",
+                        "${downloadDirectory.absolutePath}/%(title)s.%(ext)s"
+                    )
+
+                    // -------------------------------------------------
+                    // BEST VIDEO + BEST AUDIO
+                    //
+                    // This is the exact format configuration
+                    // from your previously working version.
+                    // -------------------------------------------------
+
+                    request.addOption(
+                        "-f",
+                        "bv*+ba/b"
+                    )
+
+                    // -------------------------------------------------
+                    // Merge into MP4
+                    // -------------------------------------------------
+
+                    request.addOption(
+                        "--merge-output-format",
+                        "mp4"
+                    )
+
+                    // -------------------------------------------------
+                    // Do not keep separate video/audio files
+                    // -------------------------------------------------
+
+                    request.addOption(
+                        "--no-keep-video"
+                    )
+
+                    // -------------------------------------------------
+                    // Execute yt-dlp
+                    // -------------------------------------------------
+
+                    YoutubeDL
+                        .getInstance()
+                        .execute(
+                            request
+                        ) {
+                                currentProgress,
+                                etaInSeconds,
+                                output ->
+
+                            val cleanOutput =
+                                output
+                                    .toString()
+                                    .trim()
+
+                            Log.d(
+                                TAG,
+                                "yt-dlp: $cleanOutput"
+                            )
+
+                            // -----------------------------
+                            // Progress
+                            // -----------------------------
+
+                            onProgress(
+                                currentProgress
+                            )
+
+                            // -----------------------------
+                            // Send output to UI
+                            // -----------------------------
+
+                            onOutput(
+                                cleanOutput
+                            )
+                        }
+
+                    // -------------------------------------------------
+                    // Find resulting MP4
+                    // -------------------------------------------------
+
+                    val mp4File =
+                        downloadDirectory
+                            .listFiles()
+                            ?.filter {
+                                it.isFile &&
+                                        it.extension.equals(
+                                            "mp4",
+                                            ignoreCase = true
+                                        )
+                            }
+                            ?.maxByOrNull {
+                                it.lastModified()
+                            }
+
+                    Pair(
+                        downloadDirectory.absolutePath,
+                        mp4File
+                    )
+                }
+
+                // =====================================================
+                // DOWNLOAD COMPLETE
+                // =====================================================
+
+                val downloadPath =
+                    result.first
+
+                val mp4File =
+                    result.second
+
+                onProgress(100f)
+
+                if (mp4File != null) {
+
+                    onOutput(
+                        "Download complete!"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "Downloaded file: " +
+                                mp4File.absolutePath
+                    )
+
+                    onComplete(true)
+
+                } else {
+
+                    onOutput(
+                        "Download finished, but MP4 file was not found"
+                    )
+
+                    Log.e(
+                        TAG,
+                        "No MP4 file found in: $downloadPath"
+                    )
+
+                    onComplete(false)
+                }
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Download failed",
+                    e
+                )
+
+                onOutput(
+                    "ERROR: ${e.message ?: "Unknown error"}"
+                )
+
+                onComplete(false)
             }
         }
     }
 }
 
 
-@Composable
-fun DownloaderScreen() {
+// =================================================================
+// MAIN APP
+// =================================================================
 
-    /*
-     * YouTube URL
-     */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DownloaderApp(
+    downloadDirectory: File,
+    onDownload: (
+        String,
+        (Float) -> Unit,
+        (String) -> Unit,
+        (Boolean) -> Unit
+    ) -> Unit
+) {
+
+    // -------------------------------------------------------------
+    // Selected tab
+    // -------------------------------------------------------------
+
+    var selectedTab by remember {
+        mutableIntStateOf(0)
+    }
+
+    // -------------------------------------------------------------
+    // Downloaded videos
+    // -------------------------------------------------------------
+
+    var downloadedVideos by remember {
+
+        mutableStateOf(
+            getVideoFiles(
+                downloadDirectory
+            )
+        )
+    }
+
+    // -------------------------------------------------------------
+    // Selected video
+    // -------------------------------------------------------------
+
+    var selectedVideo by remember {
+        mutableStateOf<File?>(null)
+    }
+
+    // -------------------------------------------------------------
+    // Download state
+    // -------------------------------------------------------------
+
     var url by remember {
         mutableStateOf("")
     }
 
-    /*
-     * Status text
-     */
     var status by remember {
         mutableStateOf("Ready")
     }
 
-    /*
-     * Download progress
-     */
     var progress by remember {
-        mutableStateOf(0f)
+        mutableFloatStateOf(0f)
     }
 
-    /*
-     * Video title
-     */
     var videoTitle by remember {
         mutableStateOf("")
     }
 
-    /*
-     * Prevent multiple downloads
-     */
-    var isDownloading by remember {
+    var downloading by remember {
         mutableStateOf(false)
     }
 
-    val scope = rememberCoroutineScope()
+    // -------------------------------------------------------------
+    // Video player
+    // -------------------------------------------------------------
+
+    if (selectedVideo != null) {
+
+        VideoPlayerScreen(
+            videoFile = selectedVideo!!,
+            onBack = {
+                selectedVideo = null
+            }
+        )
+
+        return
+    }
+
+    // =============================================================
+    // MAIN UI
+    // =============================================================
+
+    Scaffold(
+
+        topBar = {
+
+            TopAppBar(
+                title = {
+                    Text("YT Downloader")
+                }
+            )
+        },
+
+        bottomBar = {
+
+            NavigationBar {
+
+                // -------------------------------------------------
+                // DOWNLOAD TAB
+                // -------------------------------------------------
+
+                NavigationBarItem(
+
+                    selected = selectedTab == 0,
+
+                    onClick = {
+                        selectedTab = 0
+                    },
+
+                    icon = {
+
+                        Icon(
+                            imageVector =
+                                Icons.Default.Download,
+
+                            contentDescription =
+                                "Download"
+                        )
+                    },
+
+                    label = {
+                        Text("Download")
+                    }
+                )
+
+                // -------------------------------------------------
+                // DOWNLOADS TAB
+                // -------------------------------------------------
+
+                NavigationBarItem(
+
+                    selected = selectedTab == 1,
+
+                    onClick = {
+
+                        selectedTab = 1
+
+                        // Refresh files whenever
+                        // Downloads tab is opened.
+
+                        downloadedVideos =
+                            getVideoFiles(
+                                downloadDirectory
+                            )
+                    },
+
+                    icon = {
+
+                        Icon(
+                            imageVector =
+                                Icons.Default.PlayArrow,
+
+                            contentDescription =
+                                "Downloads"
+                        )
+                    },
+
+                    label = {
+                        Text("Downloads")
+                    }
+                )
+            }
+        }
+
+    ) { paddingValues ->
+
+        when (selectedTab) {
+
+            // =====================================================
+            // DOWNLOAD TAB
+            // =====================================================
+
+            0 -> {
+
+                DownloadScreen(
+
+                    modifier =
+                        Modifier.padding(
+                            paddingValues
+                        ),
+
+                    url = url,
+
+                    onUrlChange = {
+                        url = it
+                    },
+
+                    status = status,
+
+                    progress = progress,
+
+                    videoTitle = videoTitle,
+
+                    downloading = downloading,
+
+                    onDownload = {
+
+                        // -----------------------------------------
+                        // Validate URL
+                        // -----------------------------------------
+
+                        if (url.isBlank()) {
+
+                            status =
+                                "Please enter a YouTube URL"
+
+                            return@DownloadScreen
+                        }
+
+                        // -----------------------------------------
+                        // Prevent duplicate download
+                        // -----------------------------------------
+
+                        if (downloading) {
+                            return@DownloadScreen
+                        }
+
+                        // -----------------------------------------
+                        // Reset
+                        // -----------------------------------------
+
+                        status =
+                            "Starting download..."
+
+                        progress = 0f
+
+                        videoTitle = ""
+
+                        downloading = true
+
+                        // -----------------------------------------
+                        // Start download
+                        // -----------------------------------------
+
+                        onDownload(
+
+                            url,
+
+                            // -------------------------------------
+                            // Progress
+                            // -------------------------------------
+
+                            { currentProgress ->
+
+                                progress =
+                                    currentProgress
+                            },
+
+                            // -------------------------------------
+                            // Output
+                            // -------------------------------------
+
+                            { output ->
+
+                                if (output.isNotBlank()) {
+
+                                    Log.d(
+                                        MainActivity.TAG,
+                                        "UI output: $output"
+                                    )
+                                }
+
+                                // -----------------------------
+                                // Error
+                                // -----------------------------
+
+                                if (
+                                    output.startsWith(
+                                        "ERROR:"
+                                    )
+                                ) {
+
+                                    status =
+                                        output
+                                }
+
+                                // -----------------------------
+                                // Extract title
+                                // -----------------------------
+
+                                if (
+                                    output.isNotBlank() &&
+                                    !output.startsWith("[") &&
+                                    !output.contains("Downloading") &&
+                                    !output.contains("Destination:") &&
+                                    !output.contains("Merging") &&
+                                    !output.startsWith("ERROR:")
+                                ) {
+
+                                    videoTitle =
+                                        output.trim()
+                                }
+                            },
+
+                            // -------------------------------------
+                            // Complete
+                            // -------------------------------------
+
+                            { success ->
+
+                                downloading = false
+
+                                if (success) {
+
+                                    progress = 100f
+
+                                    status =
+                                        "Download complete!"
+
+                                    // Refresh Downloads tab
+                                    downloadedVideos =
+                                        getVideoFiles(
+                                            downloadDirectory
+                                        )
+
+                                } else {
+
+                                    if (
+                                        !status.startsWith(
+                                            "ERROR:"
+                                        )
+                                    ) {
+
+                                        status =
+                                            "Download failed"
+                                    }
+                                }
+                            }
+                        )
+
+                        status =
+                            "Downloading..."
+                    }
+                )
+            }
+
+            // =====================================================
+            // DOWNLOADS TAB
+            // =====================================================
+
+            1 -> {
+
+                DownloadsScreen(
+
+                    modifier =
+                        Modifier.padding(
+                            paddingValues
+                        ),
+
+                    videos =
+                        downloadedVideos,
+
+                    onRefresh = {
+
+                        downloadedVideos =
+                            getVideoFiles(
+                                downloadDirectory
+                            )
+                    },
+
+                    onVideoClick = { file ->
+
+                        selectedVideo = file
+                    }
+                )
+            }
+        }
+    }
+}
+
+
+// =================================================================
+// DOWNLOAD SCREEN
+// =================================================================
+
+@Composable
+fun DownloadScreen(
+    modifier: Modifier,
+    url: String,
+    onUrlChange: (String) -> Unit,
+    status: String,
+    progress: Float,
+    videoTitle: String,
+    downloading: Boolean,
+    onDownload: () -> Unit
+) {
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
 
-        verticalArrangement = Arrangement.Center
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(24.dp),
+
+        verticalArrangement =
+            Arrangement.Center
     ) {
 
-        /*
-         * Title
-         */
+        // ---------------------------------------------------------
+        // Title
+        // ---------------------------------------------------------
+
         Text(
+
             text = "YT Downloader",
-            style = MaterialTheme.typography.headlineLarge
+
+            style =
+                MaterialTheme.typography.headlineLarge
         )
 
         Spacer(
-            modifier = Modifier.height(24.dp)
+            modifier =
+                Modifier.height(24.dp)
         )
 
-        /*
-         * URL input
-         */
+        // ---------------------------------------------------------
+        // URL
+        // ---------------------------------------------------------
+
         OutlinedTextField(
 
             value = url,
 
-            onValueChange = {
-                url = it
-            },
+            onValueChange = onUrlChange,
 
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier.fillMaxWidth(),
 
             label = {
                 Text("YouTube URL")
@@ -255,412 +888,531 @@ fun DownloaderScreen() {
 
             singleLine = true,
 
-            enabled = !isDownloading
+            enabled = !downloading
         )
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(16.dp)
         )
 
-        /*
-         * Download button
-         */
+        // ---------------------------------------------------------
+        // Download button
+        // ---------------------------------------------------------
+
         Button(
 
-            enabled = !isDownloading,
+            enabled = !downloading,
 
-            onClick = {
+            onClick = onDownload,
 
-                /*
-                 * Validate URL
-                 */
-                if (url.isBlank()) {
-
-                    status = "Please enter a YouTube URL"
-
-                    return@Button
-                }
-
-                /*
-                 * Reset values
-                 */
-                status = "Starting download..."
-
-                progress = 0f
-
-                videoTitle = ""
-
-                isDownloading = true
-
-                /*
-                 * Start background operation
-                 */
-                scope.launch {
-
-                    try {
-
-                        val result = withContext(Dispatchers.IO) {
-
-                            /*
-                             * Downloads/YTDownloader
-                             */
-                            val downloadDirectory = File(
-                                Environment
-                                    .getExternalStoragePublicDirectory(
-                                        Environment.DIRECTORY_DOWNLOADS
-                                    ),
-                                "YTDownloader"
-                            )
-
-                            /*
-                             * Create directory
-                             */
-                            if (!downloadDirectory.exists()) {
-
-                                downloadDirectory.mkdirs()
-                            }
-
-                            Log.d(
-                                "YTDownloader",
-                                "Download directory: " +
-                                        downloadDirectory.absolutePath
-                            )
-
-                            /*
-                             * yt-dlp request
-                             */
-                            val request =
-                                YoutubeDLRequest(url)
-
-                            /*
-                             * Output filename
-                             */
-                            request.addOption(
-                                "-o",
-                                "${downloadDirectory.absolutePath}/%(title)s.%(ext)s"
-                            )
-
-                            /*
-                             * Best video + best audio.
-                             *
-                             * Falls back to a combined
-                             * format if necessary.
-                             */
-                            request.addOption(
-                                "-f",
-                                "bv*+ba/b"
-                            )
-
-                            /*
-                             * Merge video and audio
-                             * into MP4.
-                             */
-                            request.addOption(
-                                "--merge-output-format",
-                                "mp4"
-                            )
-
-                            /*
-                             * Do not keep separate
-                             * video/audio files.
-                             */
-                            request.addOption(
-                                "--no-keep-video"
-                            )
-
-                            /*
-                             * Execute yt-dlp
-                             */
-                            YoutubeDL
-                                .getInstance()
-                                .execute(
-                                    request
-                                ) { currentProgress,
-                                    etaInSeconds,
-                                    output ->
-
-                                    /*
-                                     * Convert output safely
-                                     * to String.
-                                     *
-                                     * This avoids the
-                                     * unresolved reference
-                                     * problem with trim().
-                                     */
-                                    val cleanOutput =
-                                        output
-                                            .toString()
-                                            .trim()
-
-                                    /*
-                                     * Log complete yt-dlp
-                                     * output.
-                                     */
-                                    Log.d(
-                                        "YTDownloader",
-                                        "yt-dlp: $cleanOutput"
-                                    )
-
-                                    /*
-                                     * Update progress.
-                                     */
-                                    progress =
-                                        currentProgress
-
-                                    /*
-                                     * Try to extract title.
-                                     *
-                                     * yt-dlp commonly outputs:
-                                     *
-                                     * [download] Destination:
-                                     * /path/VIDEO_TITLE.webm
-                                     *
-                                     * or:
-                                     *
-                                     * [Merger] Merging formats into
-                                     * "/path/VIDEO_TITLE.mp4"
-                                     */
-
-                                    if (
-                                        cleanOutput.contains(
-                                            "[download] Destination:"
-                                        )
-                                    ) {
-
-                                        val destination =
-                                            cleanOutput.substringAfter(
-                                                "[download] Destination:"
-                                            ).trim()
-
-                                        val fileName =
-                                            File(destination).name
-
-                                        /*
-                                         * Remove extension.
-                                         */
-                                        val title =
-                                            fileName.substringBeforeLast(
-                                                "."
-                                            )
-
-                                        if (title.isNotBlank()) {
-
-                                            videoTitle = title
-                                        }
-                                    }
-
-                                    /*
-                                     * Also handle Merger output.
-                                     */
-                                    if (
-                                        cleanOutput.contains(
-                                            "[Merger] Merging formats into"
-                                        )
-                                    ) {
-
-                                        val mergerPath =
-                                            cleanOutput
-                                                .substringAfter(
-                                                    "[Merger] Merging formats into"
-                                                )
-                                                .trim()
-                                                .removeSurrounding("\"")
-
-                                        val fileName =
-                                            File(mergerPath).name
-
-                                        val title =
-                                            fileName.substringBeforeLast(
-                                                "."
-                                            )
-
-                                        if (title.isNotBlank()) {
-
-                                            videoTitle = title
-                                        }
-                                    }
-
-                                    /*
-                                     * Update UI status.
-                                     */
-                                    status =
-                                        if (currentProgress >= 100f) {
-
-                                            "Finalizing..."
-
-                                        } else {
-
-                                            "Downloading: " +
-                                                    "${currentProgress.toInt()}%"
-                                        }
-                                }
-
-                            /*
-                             * Find the resulting MP4.
-                             */
-                            val files =
-                                downloadDirectory
-                                    .listFiles()
-
-                            val mp4File =
-                                files
-                                    ?.filter {
-                                        it.isFile &&
-                                                it.extension
-                                                    .equals(
-                                                        "mp4",
-                                                        ignoreCase = true
-                                                    )
-                                    }
-                                    ?.maxByOrNull {
-                                        it.lastModified()
-                                    }
-
-                            /*
-                             * Return information about
-                             * the downloaded file.
-                             */
-                            Pair(
-                                downloadDirectory.absolutePath,
-                                mp4File
-                            )
-                        }
-
-                        /*
-                         * Get returned values.
-                         */
-                        val downloadPath =
-                            result.first
-
-                        val mp4File =
-                            result.second
-
-                        /*
-                         * Download completed.
-                         */
-                        progress = 100f
-
-                        isDownloading = false
-
-                        /*
-                         * If an MP4 was found,
-                         * use its filename as the
-                         * most reliable title.
-                         */
-                        if (mp4File != null) {
-
-                            val fileName =
-                                mp4File.name
-
-                            val title =
-                                fileName.substringBeforeLast(
-                                    "."
-                                )
-
-                            if (title.isNotBlank()) {
-
-                                videoTitle = title
-                            }
-
-                            status =
-                                "Download complete!"
-
-                            Log.d(
-                                "YTDownloader",
-                                "Downloaded file: " +
-                                        mp4File.absolutePath
-                            )
-
-                        } else {
-
-                            /*
-                             * yt-dlp completed but
-                             * no MP4 was found.
-                             */
-                            status =
-                                "Download finished, but MP4 file was not found"
-
-                            Log.e(
-                                "YTDownloader",
-                                "No MP4 file found in: $downloadPath"
-                            )
-                        }
-
-                        Log.d(
-                            "YTDownloader",
-                            "Files saved to: $downloadPath"
-                        )
-
-                    } catch (e: Exception) {
-
-                        /*
-                         * Download failed.
-                         */
-                        isDownloading = false
-
-                        progress = 0f
-
-                        status =
-                            "Download failed: ${e.message}"
-
-                        Log.e(
-                            "YTDownloader",
-                            "Download failed",
-                            e
-                        )
-                    }
-                }
-            },
-
-            modifier = Modifier.fillMaxWidth()
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
 
             Text(
-                text =
-                    if (isDownloading) {
-                        "Downloading..."
-                    } else {
-                        "Download Video"
-                    }
+
+                if (downloading) {
+                    "Downloading..."
+                } else {
+                    "Download Video"
+                }
             )
         }
 
         Spacer(
-            modifier = Modifier.height(20.dp)
+            modifier =
+                Modifier.height(20.dp)
         )
 
-        /*
-         * Video title
-         */
+        // ---------------------------------------------------------
+        // Video title
+        // ---------------------------------------------------------
+
         if (videoTitle.isNotBlank()) {
 
             Text(
-                text = "Video: $videoTitle",
-                style = MaterialTheme.typography.titleMedium
+
+                text =
+                    "Video: $videoTitle",
+
+                style =
+                    MaterialTheme.typography.titleMedium
             )
 
             Spacer(
-                modifier = Modifier.height(12.dp)
+                modifier =
+                    Modifier.height(12.dp)
             )
         }
 
-        /*
-         * Status
-         */
+        // ---------------------------------------------------------
+        // Status
+        // ---------------------------------------------------------
+
         Text(
-            text = "Status: $status",
-            style = MaterialTheme.typography.bodyLarge
+
+            text =
+                "Status: $status",
+
+            style =
+                MaterialTheme.typography.bodyLarge
         )
 
         Spacer(
-            modifier = Modifier.height(12.dp)
+            modifier =
+                Modifier.height(12.dp)
         )
 
-        /*
-         * Progress
-         */
+        // ---------------------------------------------------------
+        // Progress
+        // ---------------------------------------------------------
+
         Text(
-            text = "Progress: ${progress.toInt()}%"
+
+            text =
+                "Progress: ${progress.toInt()}%"
         )
     }
+}
+
+
+// =================================================================
+// DOWNLOADS SCREEN
+// =================================================================
+
+@Composable
+fun DownloadsScreen(
+    modifier: Modifier,
+    videos: List<File>,
+    onRefresh: () -> Unit,
+    onVideoClick: (File) -> Unit
+) {
+
+    Column(
+
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(16.dp)
+    ) {
+
+        // ---------------------------------------------------------
+        // Header
+        // ---------------------------------------------------------
+
+        Row(
+
+            modifier =
+                Modifier.fillMaxWidth(),
+
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            Text(
+
+                text =
+                    "Downloaded Videos",
+
+                style =
+                    MaterialTheme.typography.headlineSmall,
+
+                modifier =
+                    Modifier.weight(1f)
+            )
+
+            IconButton(
+                onClick = onRefresh
+            ) {
+
+                Icon(
+
+                    imageVector =
+                        Icons.Default.Refresh,
+
+                    contentDescription =
+                        "Refresh"
+                )
+            }
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
+
+        // ---------------------------------------------------------
+        // Empty state
+        // ---------------------------------------------------------
+
+        if (videos.isEmpty()) {
+
+            Column(
+
+                modifier =
+                    Modifier.fillMaxSize(),
+
+                verticalArrangement =
+                    Arrangement.Center,
+
+                horizontalAlignment =
+                    Alignment.CenterHorizontally
+            ) {
+
+                Text(
+                    text =
+                        "No downloaded videos"
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.height(8.dp)
+                )
+
+                Text(
+                    text =
+                        "Download a video and it will appear here."
+                )
+            }
+
+        } else {
+
+            // -----------------------------------------------------
+            // Video list
+            // -----------------------------------------------------
+
+            LazyColumn {
+
+                items(
+
+                    items = videos,
+
+                    key = {
+                        it.absolutePath
+                    }
+
+                ) { file ->
+
+                    VideoListItem(
+
+                        file = file,
+
+                        onClick = {
+                            onVideoClick(file)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+// =================================================================
+// VIDEO LIST ITEM
+// =================================================================
+
+@Composable
+fun VideoListItem(
+    file: File,
+    onClick: () -> Unit
+) {
+
+    Card(
+
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    vertical = 6.dp
+                )
+                .clickable {
+                    onClick()
+                }
+    ) {
+
+        Row(
+
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            // -----------------------------------------------------
+            // Play icon
+            // -----------------------------------------------------
+
+            Icon(
+
+                imageVector =
+                    Icons.Default.PlayArrow,
+
+                contentDescription =
+                    "Play",
+
+                modifier =
+                    Modifier.size(40.dp)
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.size(16.dp)
+            )
+
+            // -----------------------------------------------------
+            // File information
+            // -----------------------------------------------------
+
+            Column(
+
+                modifier =
+                    Modifier.weight(1f)
+            ) {
+
+                Text(
+
+                    text =
+                        file.name.substringBeforeLast(
+                            "."
+                        ),
+
+                    style =
+                        MaterialTheme.typography.titleMedium,
+
+                    maxLines = 2,
+
+                    overflow =
+                        TextOverflow.Ellipsis
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.height(4.dp)
+                )
+
+                Text(
+
+                    text =
+                        formatFileSize(
+                            file.length()
+                        ),
+
+                    style =
+                        MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+
+// =================================================================
+// VIDEO PLAYER
+// =================================================================
+
+@Composable
+fun VideoPlayerScreen(
+    videoFile: File,
+    onBack: () -> Unit
+) {
+
+    val context =
+        androidx.compose.ui.platform
+            .LocalContext.current
+
+    // -------------------------------------------------------------
+    // ExoPlayer
+    // -------------------------------------------------------------
+
+    val exoPlayer = remember {
+
+        ExoPlayer
+            .Builder(context)
+            .build()
+            .apply {
+
+                val mediaItem =
+                    MediaItem.fromUri(
+                        android.net.Uri.fromFile(
+                            videoFile
+                        )
+                    )
+
+                setMediaItem(
+                    mediaItem
+                )
+
+                prepare()
+
+                playWhenReady = true
+            }
+    }
+
+    // -------------------------------------------------------------
+    // Release player
+    // -------------------------------------------------------------
+
+    DisposableEffect(
+        exoPlayer
+    ) {
+
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Player UI
+    // -------------------------------------------------------------
+
+    Column(
+
+        modifier =
+            Modifier.fillMaxSize()
+    ) {
+
+        // ---------------------------------------------------------
+        // Back
+        // ---------------------------------------------------------
+
+        Button(
+
+            onClick = onBack,
+
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+        ) {
+
+            Text(
+                "Back to Downloads"
+            )
+        }
+
+        // ---------------------------------------------------------
+        // Video title
+        // ---------------------------------------------------------
+
+        Text(
+
+            text =
+                videoFile.name.substringBeforeLast(
+                    "."
+                ),
+
+            style =
+                MaterialTheme.typography.titleMedium,
+
+            modifier =
+                Modifier.padding(
+                    horizontal = 16.dp
+                ),
+
+            maxLines = 2,
+
+            overflow =
+                TextOverflow.Ellipsis
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(16.dp)
+        )
+
+        // ---------------------------------------------------------
+        // Media3 PlayerView
+        // ---------------------------------------------------------
+
+        AndroidView(
+
+            factory = { ctx ->
+
+                PlayerView(ctx).apply {
+
+                    player =
+                        exoPlayer
+
+                    useController = true
+                }
+            },
+
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+        )
+    }
+}
+
+
+// =================================================================
+// GET VIDEO FILES
+// =================================================================
+
+fun getVideoFiles(
+    directory: File
+): List<File> {
+
+    if (!directory.exists()) {
+        return emptyList()
+    }
+
+    return directory
+        .listFiles()
+        ?.filter {
+
+            it.isFile &&
+                    it.extension.equals(
+                        "mp4",
+                        ignoreCase = true
+                    )
+        }
+        ?.sortedByDescending {
+
+            it.lastModified()
+        }
+        ?: emptyList()
+}
+
+
+// =================================================================
+// FORMAT FILE SIZE
+// =================================================================
+
+fun formatFileSize(
+    bytes: Long
+): String {
+
+    if (bytes < 1024) {
+        return "$bytes B"
+    }
+
+    if (bytes < 1024 * 1024) {
+
+        return String.format(
+            "%.1f KB",
+            bytes / 1024.0
+        )
+    }
+
+    if (bytes < 1024L * 1024L * 1024L) {
+
+        return String.format(
+            "%.1f MB",
+            bytes /
+                    (1024.0 * 1024.0)
+        )
+    }
+
+    return String.format(
+        "%.2f GB",
+        bytes /
+                (1024.0 * 1024.0 * 1024.0)
+    )
 }
