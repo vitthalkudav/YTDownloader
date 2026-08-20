@@ -11,7 +11,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.ytdownloader.download.YoutubeDownloader
-import com.example.ytdownloader.model.DownloadType
 import com.example.ytdownloader.ui.DownloaderApp
 import com.example.ytdownloader.ui.theme.YTDownloaderTheme
 import kotlinx.coroutines.launch
@@ -35,6 +34,9 @@ class MainActivity : ComponentActivity() {
         if (!downloadDirectory.exists()) downloadDirectory.mkdirs()
         Log.d(TAG, "Download directory: ${downloadDirectory.absolutePath}")
 
+        // Clear leftover per-download temp folders from a previous crash or force-kill.
+        YoutubeDownloader.cleanupTempFiles(downloadDirectory)
+
         YoutubeDownloader.initialize(this)
         YoutubeDownloader.updateInBackground(this)
 
@@ -43,9 +45,6 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     DownloaderApp(
                         downloadDirectory = downloadDirectory,
-                        onDownload = { url, downloadType, selectedQuality, onProgress, onOutput, onComplete ->
-                            downloadMedia(url, downloadType, selectedQuality, onProgress, onOutput, onComplete)
-                        },
                         onGetAvailableQualities = { url, onQualities, onError ->
                             getAvailableQualities(url, onQualities, onError)
                         }
@@ -55,36 +54,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun downloadMedia(
-        url: String,
-        downloadType: DownloadType,
-        selectedQuality: Int?,
-        onProgress: (Float) -> Unit,
-        onOutput: (String) -> Unit,
-        onComplete: (Boolean) -> Unit
-    ) {
-        lifecycleScope.launch {
-            try {
-                val file = YoutubeDownloader.downloadMedia(
-                    downloadDirectory, url, downloadType, selectedQuality, onProgress, onOutput
-                )
-                Log.d(TAG, "Downloaded file: ${file.absolutePath}")
-                onProgress(100f)
-                onOutput("Download complete!")
-                onComplete(true)
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed", e)
-                onOutput("ERROR: ${e.message ?: "Unknown error"}")
-                onComplete(false)
-            }
-        }
-    }
-
-    private fun getAvailableQualities(
-        url: String,
-        onQualities: (List<Int>) -> Unit,
-        onError: (String) -> Unit
-    ) {
+    private fun getAvailableQualities(url: String, onQualities: (List<Int>) -> Unit, onError: (String) -> Unit) {
         lifecycleScope.launch {
             try {
                 val qualities = YoutubeDownloader.getAvailableQualities(url)

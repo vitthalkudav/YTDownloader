@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.example.ytdownloader.download.DownloadManager
+import com.example.ytdownloader.download.DownloadStatus
 import com.example.ytdownloader.model.DownloadType
 import com.example.ytdownloader.util.MediaUtils
 import java.io.File
@@ -18,7 +20,6 @@ import java.io.File
 @Composable
 fun DownloaderApp(
     downloadDirectory: File,
-    onDownload: (String, DownloadType, Int?, (Float) -> Unit, (String) -> Unit, (Boolean) -> Unit) -> Unit,
     onGetAvailableQualities: (String, (List<Int>) -> Unit, (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
@@ -29,15 +30,20 @@ fun DownloaderApp(
 
     var url by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Ready") }
-    var progress by remember { mutableFloatStateOf(0f) }
-    var videoTitle by remember { mutableStateOf("") }
-    var downloading by remember { mutableStateOf(false) }
 
     var availableQualities by remember { mutableStateOf<List<Int>>(emptyList()) }
     var selectedQuality by remember { mutableStateOf<Int?>(null) }
     var fetchingQualities by remember { mutableStateOf(false) }
 
     var downloadType by remember { mutableStateOf(DownloadType.VIDEO) }
+
+    val tasks by DownloadManager.tasks.collectAsState()
+
+    // Refresh the library whenever a download finishes.
+    val completedCount = tasks.count { it.status == DownloadStatus.COMPLETE }
+    LaunchedEffect(completedCount) {
+        if (completedCount > 0) downloadedVideos = MediaUtils.getMediaFiles(downloadDirectory)
+    }
 
     if (selectedVideo != null) {
         VideoPlayerScreen(videoFile = selectedVideo!!, onBack = { selectedVideo = null })
@@ -56,10 +62,7 @@ fun DownloaderApp(
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
-                    onClick = {
-                        selectedTab = 1
-                        downloadedVideos = MediaUtils.getMediaFiles(downloadDirectory)
-                    },
+                    onClick = { selectedTab = 1; downloadedVideos = MediaUtils.getMediaFiles(downloadDirectory) },
                     icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Downloads") },
                     label = { Text("Downloads") }
                 )
@@ -77,9 +80,6 @@ fun DownloaderApp(
                     status = if (it.isBlank()) "Ready" else "Enter URL and get available qualities"
                 },
                 status = status,
-                progress = progress,
-                videoTitle = videoTitle,
-                downloading = downloading,
                 availableQualities = availableQualities,
                 selectedQuality = selectedQuality,
                 fetchingQualities = fetchingQualities,
@@ -114,52 +114,19 @@ fun DownloaderApp(
                             availableQualities = qualities
                             status = if (qualities.isEmpty()) "No video qualities found" else "Available qualities loaded"
                         },
-                        { error ->
-                            fetchingQualities = false
-                            status = "ERROR: $error"
-                        }
+                        { error -> fetchingQualities = false; status = "ERROR: $error" }
                     )
                 },
                 onDownload = {
                     if (url.isBlank()) { status = "Please enter a YouTube URL"; return@DownloadScreen }
-                    if (downloading) return@DownloadScreen
 
-                    status = "Starting download..."
-                    progress = 0f
-                    videoTitle = ""
-                    downloading = true
+                    DownloadManager.startDownload(downloadDirectory, url, downloadType, selectedQuality)
 
-                    onDownload(
-                        url, downloadType, selectedQuality,
-                        { currentProgress -> progress = currentProgress },
-                        { output ->
-                            if (output.startsWith("ERROR:")) status = output
-
-                            if (output.isNotBlank() &&
-                                !output.startsWith("[") &&
-                                !output.startsWith("ERROR:") &&
-                                !output.contains("Downloading") &&
-                                !output.contains("Destination:") &&
-                                !output.contains("Merging") &&
-                                !output.contains("Extracting") &&
-                                !output.contains("Download complete")
-                            ) {
-                                videoTitle = output.trim()
-                            }
-                        },
-                        { success ->
-                            downloading = false
-                            if (success) {
-                                progress = 100f
-                                status = "Download complete!"
-                                downloadedVideos = MediaUtils.getMediaFiles(downloadDirectory)
-                            } else if (!status.startsWith("ERROR:")) {
-                                status = "Download failed"
-                            }
-                        }
-                    )
-
-                    status = if (downloadType == DownloadType.AUDIO) "Downloading audio..." else "Downloading video..."
+                    status = "Download queued"
+                    // Clear the form so the next URL can be queued right away.
+                    url = ""
+                    availableQualities = emptyList()
+                    selectedQuality = null
                 },
                 onPaste = {
                     try {
@@ -167,15 +134,11 @@ fun DownloaderApp(
                         val clip = clipboard.primaryClip
 
                         if (!clipboard.hasPrimaryClip() || clip == null || clip.itemCount == 0) {
-                            status = "Clipboard is empty"
-                            return@DownloadScreen
+                            status = "Clipboard is empty"; return@DownloadScreen
                         }
 
                         val pastedText = clip.getItemAt(0).coerceToText(context).toString().trim()
-                        if (pastedText.isBlank()) {
-                            status = "Clipboard does not contain text"
-                            return@DownloadScreen
-                        }
+                        if (pastedText.isBlank()) { status = "Clipboard does not contain text"; return@DownloadScreen }
 
                         url = pastedText
                         availableQualities = emptyList()
@@ -184,7 +147,10 @@ fun DownloaderApp(
                     } catch (e: Exception) {
                         status = "Unable to read clipboard"
                     }
-                }
+                },
+                activeTasks = tasks,
+                onCancelTask = { id -> DownloadManager.cancelDownload(id) },
+                onDismissTask = { id -> DownloadManager.dismiss(id) }
             )
 
             1 -> DownloadsScreen(
